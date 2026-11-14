@@ -10,7 +10,8 @@ export interface ToolCall {
   type: "function";
   function: {
     name: string;
-    arguments: string;
+    /** Some OpenAI-compatible gateways pass the parsed object instead of a JSON string. */
+    arguments: string | Record<string, unknown>;
   };
 }
 

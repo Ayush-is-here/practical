@@ -3,25 +3,28 @@ import type {
   ChatCompletionChunk,
 } from "./types.js";
 
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+export interface LLMClientConfig {
+  baseUrl: string;
+  apiKey: string;
+  defaultHeaders?: Record<string, string>;
+}
 
-export class OpenRouterClient {
-  private apiKey: string;
+export class LLMClient {
+  private config: LLMClientConfig;
 
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
+  constructor(config: LLMClientConfig) {
+    this.config = config;
   }
 
   async *streamChatCompletion(
     request: ChatCompletionRequest
   ): AsyncGenerator<ChatCompletionChunk> {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.config.apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/youtube-cc",
-        "X-Title": "youtube-cc",
+        ...this.config.defaultHeaders,
       },
       body: JSON.stringify({ ...request, stream: true }),
     });
@@ -29,7 +32,7 @@ export class OpenRouterClient {
     if (!response.ok) {
       const errorBody = await response.text();
       throw new Error(
-        `OpenRouter API error (${response.status}): ${errorBody}`
+        `LLM API error (${response.status}): ${errorBody}`
       );
     }
 

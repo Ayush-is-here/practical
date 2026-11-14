@@ -2,6 +2,7 @@ import { Command } from "commander";
 import React from "react";
 import { render } from "ink";
 import { App } from "./ui/App.js";
+import { resolveLlmConfig, missingKeyMessage } from "./utils/env.js";
 
 export function createCLI() {
   const program = new Command();
@@ -12,27 +13,27 @@ export function createCLI() {
     .version("1.0.0")
     .option(
       "-m, --model <model>",
-      "Model to use via OpenRouter",
-      "anthropic/claude-sonnet-4"
+      "Model to use via LLM gateway (default: auto-detect; see LLM_MODEL in .env)",
+      undefined
     )
     .action((options) => {
-      const apiKey = process.env.OPENROUTER_API_KEY;
+      const config = resolveLlmConfig(options.model);
 
-      if (!apiKey) {
-        console.error(
-          "Error: OPENROUTER_API_KEY environment variable is required.\n" +
-            "Set it with: export OPENROUTER_API_KEY=your_key_here"
-        );
+      if (!config.apiKey) {
+        console.error(missingKeyMessage());
         process.exit(1);
       }
 
       render(
         React.createElement(App, {
-          apiKey,
-          model: options.model,
+          apiKey: config.apiKey,
+          model: config.model,
+          baseUrl: config.baseUrl,
         })
       );
     });
 
   return program;
 }
+
+export default createCLI;

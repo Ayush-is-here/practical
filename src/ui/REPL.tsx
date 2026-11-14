@@ -6,15 +6,16 @@ import {
   type CompletedMessage,
 } from "./components/MessageList.js";
 import { Conversation } from "../core/query.js";
-import { OpenRouterClient } from "../api/client.js";
+import { LLMClient } from "../api/client.js";
 import type { MessageLoopCallbacks } from "../core/messageLoop.js";
 
 interface REPLProps {
   apiKey: string;
   model: string;
+  baseUrl: string;
 }
 
-export function REPL({ apiKey, model }: REPLProps) {
+export function REPL({ apiKey, model, baseUrl }: REPLProps) {
   const { exit } = useApp();
   const [completedMessages, setCompletedMessages] = useState<
     CompletedMessage[]
@@ -25,7 +26,7 @@ export function REPL({ apiKey, model }: REPLProps) {
   const msgIdRef = useRef(0);
 
   const conversationRef = useRef(
-    new Conversation(new OpenRouterClient(apiKey), model)
+    new Conversation(new LLMClient({ baseUrl, apiKey }), model)
   );
 
   const nextId = useCallback(() => {

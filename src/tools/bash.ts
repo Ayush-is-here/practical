@@ -2,6 +2,12 @@ import { z } from "zod";
 import { exec } from "child_process";
 import type { Tool, ToolResult } from "./types.js";
 import { colors } from "../utils/colors.js";
+import { findBashShell } from "../utils/shell.js";
+
+function getShellOptions(): { shell: string | undefined } {
+  // Resolve once per call so changes to PATH during a session are respected.
+  return { shell: findBashShell() };
+}
 
 const inputSchema = z.object({
   command: z.string().describe("The bash command to execute"),
@@ -21,8 +27,9 @@ export const bashTool: Tool = {
   async call(input): Promise<ToolResult> {
     const { command, timeout } = inputSchema.parse(input);
 
+    const { shell } = getShellOptions();
     return new Promise((resolve) => {
-      exec(command, { timeout, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+      exec(command, { timeout, maxBuffer: 1024 * 1024 * 10, shell }, (error, stdout, stderr) => {
         if (error && !stdout && !stderr) {
           resolve({
             output: `Error: ${error.message}`,

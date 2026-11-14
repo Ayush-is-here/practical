@@ -2,6 +2,7 @@ import { z } from "zod";
 import { exec } from "child_process";
 import type { Tool, ToolResult } from "./types.js";
 import { colors } from "../utils/colors.js";
+import { findBashShell } from "../utils/shell.js";
 
 const inputSchema = z.object({
   pattern: z.string().describe("The regex pattern to search for"),
@@ -17,7 +18,7 @@ const inputSchema = z.object({
 
 function runCommand(cmd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    exec(cmd, { maxBuffer: 1024 * 1024 * 10, shell: findBashShell() }, (error, stdout, stderr) => {
       resolve({
         stdout: stdout || "",
         stderr: stderr || "",

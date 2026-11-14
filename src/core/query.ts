@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../api/types.js";
-import { OpenRouterClient } from "../api/client.js";
+import { LLMClient } from "../api/client.js";
 import {
   runMessageLoop,
   type MessageLoopCallbacks,
@@ -7,10 +7,10 @@ import {
 
 export class Conversation {
   private messages: ChatMessage[] = [];
-  private client: OpenRouterClient;
+  private client: LLMClient;
   private model: string;
 
-  constructor(client: OpenRouterClient, model: string) {
+  constructor(client: LLMClient, model: string) {
     this.client = client;
     this.model = model;
   }

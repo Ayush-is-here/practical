@@ -1,11 +1,27 @@
-import type { ChatMessage, ToolCall, ToolCallDelta } from "../api/types.js";
-import { OpenRouterClient } from "../api/client.js";
+import type {
+  ChatCompletionChunk,
+  ChatMessage,
+  ToolCall,
+  ToolCallDelta,
+} from "../api/types.js";
+import { LLMClient } from "../api/client.js";
 import { getToolDefinitions } from "../tools/index.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import {
   executeToolCalls,
   type ToolExecutionResult,
 } from "./toolExecutor.js";
+
+function fallbackCandidates(primary: string): string[] {
+  const env =
+    typeof process !== "undefined"
+      ? process.env.LLM_FALLBACK_MODELS
+      : undefined;
+  const fallbacks = env
+    ? env.split(",").map((s) => s.trim()).filter(Boolean)
+    : ["openrouter/free"];
+  return [primary, ...fallbacks.filter((m) => m !== primary)];
+}
 
 export interface MessageLoopCallbacks {
   onToken: (token: string) => void;
@@ -16,7 +32,7 @@ export interface MessageLoopCallbacks {
 }
 
 export async function runMessageLoop(
-  client: OpenRouterClient,
+  client: LLMClient,
   messages: ChatMessage[],
   model: string,
   callbacks: MessageLoopCallbacks
@@ -30,41 +46,59 @@ export async function runMessageLoop(
   let continueLoop = true;
 
   while (continueLoop) {
-    try {
+    const models = fallbackCandidates(model);
+    let roundError: Error | null = null;
+    let roundFailedModels: string[] = [];
+
+    for (let attempt = 0; attempt < models.length; attempt++) {
+      const modelToTry = models[attempt];
       let assistantText = "";
       const toolCallDeltas: Map<number, { id: string; name: string; arguments: string }> = new Map();
 
-      const stream = client.streamChatCompletion({
-        model,
-        messages: [systemMessage, ...messages],
-        tools: tools.length > 0 ? tools : undefined,
-      });
-
-      let finishReason: string | null = null;
-
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0];
-        if (!choice) continue;
-
-        // Handle text content
-        if (choice.delta.content) {
-          assistantText += choice.delta.content;
-          callbacks.onToken(choice.delta.content);
-        }
-
-        // Handle tool call deltas
-        if (choice.delta.tool_calls) {
-          for (const delta of choice.delta.tool_calls) {
-            accumulateToolCallDelta(toolCallDeltas, delta);
-          }
-        }
-
-        if (choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
+      let stream: AsyncGenerator<ChatCompletionChunk>;
+      try {
+        stream = client.streamChatCompletion({
+          model: modelToTry,
+          messages: [systemMessage, ...messages],
+          tools: tools.length > 0 ? tools : undefined,
+        });
+      } catch (err) {
+        roundError = err instanceof Error ? err : new Error(String(err));
+        roundFailedModels.push(modelToTry);
+        continue;
       }
 
-      // Build the completed tool calls array
+      let finishReason: string | null = null;
+      let streamThrew = false;
+
+      try {
+        for await (const chunk of stream) {
+          if (!chunk.choices || chunk.choices.length === 0) continue;
+          const choice = chunk.choices[0];
+          if (!choice?.delta) continue;
+
+          // Handle text content
+          if (choice.delta.content) {
+            assistantText += choice.delta.content;
+            callbacks.onToken(choice.delta.content);
+          }
+
+          // Handle tool call deltas
+          if (choice.delta.tool_calls) {
+            for (const delta of choice.delta.tool_calls) {
+              accumulateToolCallDelta(toolCallDeltas, delta);
+            }
+          }
+
+          if (choice.finish_reason) {
+            finishReason = choice.finish_reason;
+          }
+        }
+      } catch (err) {
+        roundError = err instanceof Error ? err : new Error(String(err));
+        streamThrew = true;
+      }
+
       const toolCalls: ToolCall[] = Array.from(toolCallDeltas.values()).map(
         (tc) => ({
           id: tc.id,
@@ -75,6 +109,21 @@ export async function runMessageLoop(
           },
         })
       );
+
+      // The gateway sometimes returns an upstream error as a chunk with no
+      // choices (empty response). Treat "silent + no output" as a failed
+      // round and fall back to the next model.
+      const silentRound =
+        !streamThrew &&
+        !finishReason &&
+        !assistantText &&
+        toolCalls.length === 0;
+
+      if (silentRound) {
+        roundError = roundError ?? new Error(`Model ${modelToTry} returned no output`);
+        roundFailedModels.push(modelToTry);
+        continue;
+      }
 
       if (
         finishReason === "tool_calls" ||
@@ -109,9 +158,15 @@ export async function runMessageLoop(
         callbacks.onComplete(assistantText);
         continueLoop = false;
       }
-    } catch (error) {
+      break; // success: leave the attempt loop
+    }
+
+    if (continueLoop && roundError) {
+      // All model attempts failed this round.
       callbacks.onError(
-        error instanceof Error ? error : new Error(String(error))
+        new Error(
+          `All models failed (${roundFailedModels.join(", ")}): ${roundError.message}`
+        )
       );
       continueLoop = false;
     }

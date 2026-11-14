@@ -31,11 +31,15 @@ export async function executeToolCalls(
       resultSummary = result.output;
     } else {
       let parsedArgs: Record<string, unknown>;
+      const rawArgs = toolCall.function.arguments;
       try {
-        parsedArgs = JSON.parse(toolCall.function.arguments);
+        parsedArgs =
+          typeof rawArgs === "string"
+            ? JSON.parse(rawArgs)
+            : (rawArgs as Record<string, unknown>);
       } catch {
         result = {
-          output: `Invalid JSON arguments: ${toolCall.function.arguments}`,
+          output: `Invalid JSON arguments: ${typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs)}`,
           isError: true,
         };
         callSummary = `${tool.name} (invalid args)`;
